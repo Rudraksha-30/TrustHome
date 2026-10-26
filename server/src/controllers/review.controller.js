@@ -41,10 +41,69 @@ exports.createReview = async (req, res) => {
   res.status(201).json({ review, trust });
 };
 
+// Point 1: a customer can change or remove their own review. The provider's trust score is recalculated
+// each time, so an edit or removal is reflected immediately and is visible to the provider in a notification.
+async function loadOwnReview(req, res) {
+  const review = await Review.findById(req.params.id);
+  if (!review) {
+    res.status(404).json({ message: 'Review not found' });
+    return null;
+  }
+  if (review.customer.toString() !== req.user._id.toString()) {
+    res.status(403).json({ message: 'You can only change your own reviews' });
+    return null;
+  }
+  return review;
+}
+
+exports.updateReview = async (req, res) => {
+  const review = await loadOwnReview(req, res);
+  if (!review) return;
+
+  const { rating, comment } = req.body;
+  if (rating === undefined && comment === undefined) {
+    return res.status(400).json({ message: 'Change the rating or the comment, then save.' });
+  }
+  if (rating !== undefined) review.rating = rating;
+  if (comment !== undefined) review.comment = comment; // an empty comment clears it
+  review.editedAt = new Date();
+  await review.save();
+
+  const trust = await recalculateForProvider(review.provider);
+  await notify(
+    review.provider,
+    'review',
+    `${req.user.name} updated their review to ${review.rating} stars. Your trust score is now ${trust.score}.`,
+    `/bookings/${review.booking}`
+  );
+  res.json({ review, trust });
+};
+
+exports.deleteReview = async (req, res) => {
+  const review = await loadOwnReview(req, res);
+  if (!review) return;
+
+  const { booking, provider } = review;
+  await review.deleteOne();
+
+  // The booking can be reviewed again afterwards (the one-review-per-booking rule still holds at any moment).
+  const trust = await recalculateForProvider(provider);
+  await notify(
+    provider,
+    'review',
+    `${req.user.name} removed their review. Your trust score is now ${trust.score}.`,
+    `/bookings/${booking}`
+  );
+  res.json({ deleted: true, trust });
+};
+
 // Reviews for one provider profile, newest first
 exports.listForProvider = async (req, res) => {
   const profile = await ProviderProfile.findById(req.params.profileId);
   if (!profile) return res.status(404).json({ message: 'Provider not found' });
+  if (req.user.role === 'provider' && String(profile.user) !== String(req.user._id)) {
+    return res.status(403).json({ message: 'Providers can only see their own reviews here.' });
+  }
 
   const reviews = await Review.find({ provider: profile.user })
     .sort({ createdAt: -1 })

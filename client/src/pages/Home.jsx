@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import { categoryLabel, SIGNALS } from '../lib.js';
+import { SIGNALS } from '../lib.js';
 import TrustDial from '../components/TrustDial.jsx';
 import SignalBars from '../components/SignalBars.jsx';
 import ProviderCard from '../components/ProviderCard.jsx';
@@ -11,18 +11,28 @@ import { VerifiedMark } from '../components/bits.jsx';
 export default function Home() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [q, setQ] = useState('');
-  const [categories, setCategories] = useState([]);
+  const [service, setService] = useState('');
+  const [services, setServices] = useState([]);
   const [top, setTop] = useState([]);
+  const isCustomer = user?.role === 'customer';
 
   useEffect(() => {
-    api.get('/providers/meta/categories').then((d) => setCategories(d.categories)).catch(() => {});
-    api.get('/providers?limit=3').then((d) => setTop(d.providers)).catch(() => {});
+    api.get('/providers/meta/catalog').then((d) => setServices(d.services)).catch(() => {});
   }, []);
 
+  // Provider data is only for signed-in customers, so signed-out visitors never ask for it.
+  useEffect(() => {
+    if (!isCustomer) {
+      setTop([]);
+      return;
+    }
+    api.get('/providers?limit=3').then((d) => setTop(d.providers)).catch(() => {});
+  }, [isCustomer]);
+
+  // Signed-out visitors are sent to the login page by the route guard, then on to this search.
   const search = (e) => {
     e.preventDefault();
-    navigate(`/providers${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`);
+    navigate(`/providers${service ? `?category=${encodeURIComponent(service)}` : ''}`);
   };
 
   const featured = top[0];
@@ -38,14 +48,17 @@ export default function Home() {
               upheld against them. You see the numbers behind it before you book.
             </p>
             <form className="search" onSubmit={search} role="search">
-              <input aria-label="What do you need done?" placeholder="Plumber, electrician, cleaning…" value={q} onChange={(e) => setQ(e.target.value)} />
+              <select aria-label="What do you need done?" value={service} onChange={(e) => setService(e.target.value)}>
+                <option value="">Any service</option>
+                {services.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+              </select>
               <button className="btn btn-accent" type="submit">Search</button>
             </form>
-            {categories.length > 0 && (
+            {services.length > 0 && (
               <div className="quick">
                 <span className="muted small">Popular:</span>
-                {categories.slice(0, 6).map((c) => (
-                  <Link key={c} className="chip" to={`/providers?category=${encodeURIComponent(c)}`}>{categoryLabel(c)}</Link>
+                {services.slice(0, 6).map((c) => (
+                  <Link key={c.key} className="chip" to={`/providers?category=${encodeURIComponent(c.key)}`}>{c.label}</Link>
                 ))}
               </div>
             )}

@@ -55,11 +55,12 @@ export default function Navbar() {
       <div className="container nav-inner">
         <Brand />
         <nav className="nav-links" aria-label="Main">
-          <NavLink to="/providers">Find a pro</NavLink>
+          {(!user || user.role === 'customer') && <NavLink to="/providers">Find a pro</NavLink>}
           {user?.role === 'customer' && <NavLink to="/bookings">My bookings</NavLink>}
           {user?.role === 'provider' && <NavLink to="/bookings">Bookings</NavLink>}
           {user?.role === 'provider' && <NavLink to="/listing">My listing</NavLink>}
           {user?.role === 'admin' && <NavLink to="/admin">Admin</NavLink>}
+          {user?.role === 'inspector' && <NavLink to="/inspector">Quality report</NavLink>}
         </nav>
         <div className="nav-user">
           {user ? (

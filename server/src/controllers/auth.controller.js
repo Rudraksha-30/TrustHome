@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const ProviderProfile = require('../models/ProviderProfile');
 const { signToken } = require('../middleware/auth');
+const { ensureLogStarted } = require('../services/availability.service');
 
 // FR-1: register as customer or provider. Admin accounts are never self-registered.
 exports.register = async (req, res) => {
@@ -11,8 +12,12 @@ exports.register = async (req, res) => {
 
   const user = await User.create({ name, email, password, phone, role });
 
-  // Providers get an empty profile straight away so the trust score has a home
-  if (user.role === 'provider') await ProviderProfile.create({ user: user._id });
+  // Providers get an empty profile straight away so the trust score has a home. They start as "not available"
+  // (customers do not see them) until they finish their listing and switch availability on.
+  if (user.role === 'provider') {
+    await ProviderProfile.create({ user: user._id });
+    await ensureLogStarted(user._id, false);
+  }
 
   res.status(201).json({ token: signToken(user), user });
 };

@@ -47,7 +47,10 @@ app.use('/api/bookings', require('./routes/booking.routes'));
 app.use('/api/reviews', require('./routes/review.routes'));
 app.use('/api/disputes', require('./routes/dispute.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
+app.use('/api/portfolio', require('./routes/portfolio.routes'));
+app.use('/api/media', require('./routes/media.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
+app.use('/api/inspector', require('./routes/inspector.routes'));
 
 app.use(notFound);
 app.use(errorHandler);

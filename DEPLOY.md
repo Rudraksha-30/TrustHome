@@ -125,6 +125,8 @@ npm run seed:admin
 MONGO_URI='mongodb+srv://...' ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='a-strong-password' npm run seed:admin
 ```
 
+Quality inspectors are created the same way with `npm run seed:inspector` (set `INSPECTOR_EMAIL` and `INSPECTOR_PASSWORD` instead).
+
 Optional, for a good-looking demo: `npm run seed:demo` with the same `MONGO_URI` adds sample providers,
 customers, bookings and reviews. Those accounts share the publicly known password `Password123`,
 so add them only for presentations.

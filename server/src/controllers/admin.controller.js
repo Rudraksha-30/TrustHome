@@ -91,9 +91,26 @@ exports.resolveDispute = async (req, res) => {
   // The outcome may change the provider's score (provider_at_fault lowers the dispute signal)
   await recalculateForProvider(dispute.booking.provider);
 
-  const label = { provider_at_fault: 'in favour of the customer', customer_at_fault: 'in favour of the provider', no_fault: 'with no fault found' }[outcome];
+  // Each side gets wording written for THEM. (Before, both received the same sentence, so a provider read a
+  // message that sounded like it was meant for the customer.)
+  const cat = dispute.booking.category;
   const link = `/bookings/${dispute.booking._id}`;
-  await notify([dispute.booking.customer, dispute.booking.provider], 'dispute', `Your ${dispute.booking.category} dispute was resolved ${label}`, link);
+  const wording = {
+    provider_at_fault: {
+      customer: `The ${cat} problem you reported was decided in your favour.`,
+      provider: `The ${cat} problem reported against you was decided against you. This lowers your dispute signal.`,
+    },
+    customer_at_fault: {
+      customer: `The ${cat} problem you reported was decided in the provider's favour.`,
+      provider: `The ${cat} problem reported against you was decided in your favour.`,
+    },
+    no_fault: {
+      customer: `The ${cat} problem you reported was closed with no fault found.`,
+      provider: `The ${cat} problem reported against you was closed with no fault found.`,
+    },
+  }[outcome];
+  await notify(dispute.booking.customer, 'dispute', wording.customer, link);
+  await notify(dispute.booking.provider, 'dispute', wording.provider, link);
 
   res.json({ dispute });
 };

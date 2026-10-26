@@ -68,7 +68,45 @@ async function request(method, path, body) {
   return data;
 }
 
+// Photos and videos go up as the raw file body (no JSON), with the real type and name in headers.
+async function upload(path, file, caption = '') {
+  const token = getToken();
+  let res;
+  try {
+    res = await fetch(BASE + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-Filename': encodeURIComponent(file.name || 'file'),
+        ...(caption ? { 'X-Caption': encodeURIComponent(caption) } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: file,
+    });
+  } catch {
+    throw new ApiError('Cannot reach the server. Check your connection and try again.', 0);
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* empty body */
+  }
+  if (!res.ok) {
+    if (res.status === 401 && token) onUnauthorized();
+    throw new ApiError(data?.message || `Upload failed (error ${res.status}).`, res.status);
+  }
+  return data;
+}
+
+/** The server hands out file addresses starting with /api/...; add the server's own address in production. */
+export const mediaSrc = (url) => `${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}${url}`;
+
+export const TOKEN_STORAGE_KEY = TOKEN_KEY;
+
 export const api = {
+  upload,
+  del: (path) => request('DELETE', path),
   get: (path) => request('GET', path),
   post: (path, body = {}) => request('POST', path, body),
   put: (path, body = {}) => request('PUT', path, body),

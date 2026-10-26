@@ -11,6 +11,7 @@ import BookingDetail from './pages/BookingDetail.jsx';
 import MyListing from './pages/MyListing.jsx';
 import Notifications from './pages/Notifications.jsx';
 import Admin from './pages/Admin.jsx';
+import Inspector from './pages/Inspector.jsx';
 import NotFound from './pages/NotFound.jsx';
 
 /** Sends signed-out visitors to the login page and remembers where they were going (FR-4). */
@@ -18,7 +19,7 @@ function RequireAuth({ roles, children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <p className="container page muted">Loading your account…</p>;
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
+  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   if (roles && !roles.includes(user.role)) {
     return (
       <main className="container page">
@@ -38,16 +39,17 @@ export default function App() {
       <div id="main">
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/providers" element={<Providers />} />
-          <Route path="/providers/:id" element={<ProviderDetail />} />
+          <Route path="/providers" element={<RequireAuth roles={['customer', 'admin']}><Providers /></RequireAuth>} />
+          <Route path="/providers/:id" element={<RequireAuth roles={['customer', 'admin']}><ProviderDetail /></RequireAuth>} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/bookings" element={<RequireAuth roles={['customer', 'provider']}><Bookings /></RequireAuth>} />
-          <Route path="/bookings/:id" element={<RequireAuth><BookingDetail /></RequireAuth>} />
+          <Route path="/bookings/:id" element={<RequireAuth roles={['customer', 'provider', 'admin']}><BookingDetail /></RequireAuth>} />
           <Route path="/listing" element={<RequireAuth roles={['provider']}><MyListing /></RequireAuth>} />
           <Route path="/profile" element={<Navigate to="/listing" replace />} />
           <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
           <Route path="/admin" element={<RequireAuth roles={['admin']}><Admin /></RequireAuth>} />
+          <Route path="/inspector" element={<RequireAuth roles={['inspector']}><Inspector /></RequireAuth>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>

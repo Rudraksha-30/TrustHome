@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { categoryLabel, fmtDate, fmtDateTime } from '../lib.js';
 import Chat from '../components/Chat.jsx';
+import MediaGallery from '../components/MediaGallery.jsx';
 import Timeline from '../components/Timeline.jsx';
 import { Notice, StatusBadge } from '../components/bits.jsx';
 
@@ -14,9 +15,9 @@ const OUTCOME_LABEL = {
   no_fault: 'No fault found',
 };
 
-function ReviewForm({ bookingId, onDone }) {
-  const [rating, setRating] = useState(0);
-  const [comment, setComment] = useState('');
+function ReviewForm({ bookingId, onDone, existing, onCancel }) {
+  const [rating, setRating] = useState(existing?.rating || 0);
+  const [comment, setComment] = useState(existing?.comment || '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -26,7 +27,8 @@ function ReviewForm({ bookingId, onDone }) {
     setBusy(true);
     setError('');
     try {
-      await api.post('/reviews', { bookingId, rating, comment: comment.trim() || undefined });
+      if (existing) await api.patch(`/reviews/${existing._id}`, { rating, comment: comment.trim() });
+      else await api.post('/reviews', { bookingId, rating, comment: comment.trim() || undefined });
       onDone();
     } catch (err) {
       setError(err.message);
@@ -59,7 +61,10 @@ function ReviewForm({ bookingId, onDone }) {
         <label htmlFor="r-comment">Comment (optional)</label>
         <textarea id="r-comment" value={comment} onChange={(e) => setComment(e.target.value)} maxLength={500} placeholder="Was the provider on time and tidy?" />
       </div>
-      <button className="btn btn-accent" type="submit" disabled={busy}>{busy ? 'Posting…' : 'Post review'}</button>
+      <div className="row">
+        <button className="btn btn-accent" type="submit" disabled={busy}>{busy ? 'Saving…' : existing ? 'Save changes' : 'Post review'}</button>
+        {existing && <button className="btn btn-ghost" type="button" onClick={onCancel}>Cancel</button>}
+      </div>
     </form>
   );
 }
@@ -112,6 +117,8 @@ export default function BookingDetail() {
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState('');
+  const [editingReview, setEditingReview] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isAdmin = user.role === 'admin';
 
@@ -163,6 +170,18 @@ export default function BookingDetail() {
     }
   };
 
+  const deleteReview = async () => {
+    setActionError('');
+    try {
+      await api.del(`/reviews/${review._id}`);
+      setConfirmDelete(false);
+      setReview(null);
+      await load();
+    } catch (e) {
+      setActionError(e.message);
+    }
+  };
+
   const s = booking.status;
   const canCancel = (isCustomer && (s === 'requested' || s === 'accepted')) || (isProvider && s === 'accepted');
   const canDispute = (isCustomer || isProvider) && DISPUTABLE.includes(s) && !booking.disputeOpen;
@@ -187,7 +206,6 @@ export default function BookingDetail() {
             {isAdmin && (<><dt>Provider</dt><dd>{booking.provider?.name}</dd></>)}
             {isProvider && booking.customer?.phone && (<><dt>Phone</dt><dd>{booking.customer.phone}</dd></>)}
             <dt>When</dt><dd>{fmtDateTime(booking.scheduledStart)}</dd>
-            <dt>Length</dt><dd>{booking.durationMinutes} minutes</dd>
             <dt>Address</dt><dd>{booking.address || 'Not given'}</dd>
             <dt>Notes</dt><dd>{booking.notes || 'None'}</dd>
           </dl>
@@ -238,14 +256,27 @@ export default function BookingDetail() {
         {isCustomer && s === 'completed' && (
           <section className="panel span-2">
             <h2>Your review</h2>
-            {booking.reviewed || review ? (
-              review ? (
-                <>
-                  <div className="stars" aria-label={`${review.rating} out of 5 stars`}>{'★'.repeat(review.rating) + '☆'.repeat(5 - review.rating)}</div>
-                  <p style={{ margin: '4px 0 0' }}>{review.comment || 'No comment.'}</p>
-                  <p className="muted small" style={{ margin: '4px 0 0' }}>Posted {fmtDate(review.createdAt)}</p>
-                </>
-              ) : <p className="muted">You have already reviewed this booking.</p>
+            <Notice>{actionError}</Notice>
+            {editingReview && review ? (
+              <ReviewForm bookingId={id} existing={review} onCancel={() => setEditingReview(false)} onDone={async () => { setEditingReview(false); await load(); }} />
+            ) : review ? (
+              <>
+                <div className="stars" aria-label={`${review.rating} out of 5 stars`}>{'★'.repeat(review.rating) + '☆'.repeat(5 - review.rating)}</div>
+                <p style={{ margin: '4px 0 0' }}>{review.comment || 'No comment.'}</p>
+                <p className="muted small" style={{ margin: '4px 0 10px' }}>Posted {fmtDate(review.createdAt)}{review.editedAt ? ` · edited ${fmtDate(review.editedAt)}` : ''}</p>
+                {confirmDelete ? (
+                  <div className="row">
+                    <span className="small">Delete this review? Your rating will be removed from the provider's score.</span>
+                    <button className="btn btn-danger btn-sm" onClick={deleteReview}>Yes, delete</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(false)}>Keep it</button>
+                  </div>
+                ) : (
+                  <div className="row">
+                    <button className="btn btn-ghost btn-sm" onClick={() => setEditingReview(true)}>Edit review</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(true)}>Delete review</button>
+                  </div>
+                )}
+              </>
             ) : (
               <ReviewForm bookingId={id} onDone={load} />
             )}
@@ -278,6 +309,13 @@ export default function BookingDetail() {
               </div>
             ))}
             {canDispute && <div style={{ marginTop: disputes.length ? 14 : 0 }}><DisputeForm bookingId={id} onDone={load} /></div>}
+          </section>
+        )}
+
+        {(isCustomer || isProvider || isAdmin) && (
+          <section className="panel span-2">
+            <h2>Photos and videos</h2>
+            <MediaGallery bookingId={id} role={isCustomer ? 'customer' : isProvider ? 'provider' : 'admin'} status={s} meId={user._id} />
           </section>
         )}
 

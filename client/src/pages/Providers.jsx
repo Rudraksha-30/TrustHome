@@ -1,33 +1,29 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
-import { categoryLabel } from '../lib.js';
 import ProviderCard from '../components/ProviderCard.jsx';
 import { Empty, Notice } from '../components/bits.jsx';
 
+// Point 11: customers cannot type a search. They pick a service and a city from lists, so a search always
+// uses words that providers also chose from a list.
 export default function Providers() {
   const [params, setParams] = useSearchParams();
-  const q = params.get('q') || '';
   const category = params.get('category') || '';
   const area = params.get('area') || '';
   const page = Math.max(1, parseInt(params.get('page'), 10) || 1);
 
-  const [draft, setDraft] = useState({ q, area });
-  const [categories, setCategories] = useState([]);
+  const [filters, setFilters] = useState({ services: [], areas: [] });
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/providers/meta/categories').then((d) => setCategories(d.categories)).catch(() => {});
+    api.get('/providers/meta/filters').then(setFilters).catch(() => {});
   }, []);
-
-  useEffect(() => setDraft({ q, area }), [q, area]);
 
   useEffect(() => {
     let cancelled = false;
     setError('');
     const qs = new URLSearchParams({ page, limit: 8 });
-    if (q) qs.set('q', q);
     if (category) qs.set('category', category);
     if (area) qs.set('area', area);
     api
@@ -37,7 +33,7 @@ export default function Providers() {
     return () => {
       cancelled = true;
     };
-  }, [q, category, area, page]);
+  }, [category, area, page]);
 
   const update = (changes) => {
     const next = new URLSearchParams(params);
@@ -46,45 +42,41 @@ export default function Providers() {
     setParams(next);
   };
 
-  const submit = (e) => {
-    e.preventDefault();
-    update({ q: draft.q.trim(), area: draft.area.trim() });
-  };
-
-  const hasFilters = q || category || area;
+  const hasFilters = category || area;
 
   return (
     <main className="container page">
       <h1 style={{ fontSize: '2rem' }}>Find a pro</h1>
-      <p className="muted">Sorted by Trust Score, highest first.</p>
+      <p className="muted">Only professionals who are available right now are shown, highest Trust Score first.</p>
 
-      <form className="filters" onSubmit={submit} role="search">
+      <div className="filters" role="search">
         <div className="field">
-          <label htmlFor="f-q">Search</label>
-          <input id="f-q" value={draft.q} onChange={(e) => setDraft({ ...draft, q: e.target.value })} placeholder="Leak repair, wiring…" />
-        </div>
-        <div className="field">
-          <label htmlFor="f-cat">Category</label>
+          <label htmlFor="f-cat">Service</label>
           <select id="f-cat" value={category} onChange={(e) => update({ category: e.target.value })}>
-            <option value="">All categories</option>
-            {categories.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+            <option value="">All services</option>
+            {filters.services.map((s) => (
+              <option key={s.key} value={s.key}>{s.label} ({s.count})</option>
+            ))}
           </select>
         </div>
         <div className="field">
           <label htmlFor="f-area">City or area</label>
-          <input id="f-area" value={draft.area} onChange={(e) => setDraft({ ...draft, area: e.target.value })} placeholder="Jaipur" />
+          <select id="f-area" value={area} onChange={(e) => update({ area: e.target.value })}>
+            <option value="">Anywhere</option>
+            {filters.areas.map((a) => (
+              <option key={a.name} value={a.name}>{a.name} ({a.count})</option>
+            ))}
+          </select>
         </div>
-        <button className="btn" type="submit">Apply</button>
-      </form>
+        {hasFilters && <button className="btn btn-ghost" type="button" onClick={() => setParams({})}>Clear</button>}
+      </div>
 
       <Notice>{error}</Notice>
-
       {!data && !error && <p className="muted">Loading providers…</p>}
 
       {data && data.providers.length === 0 && (
-        <Empty title="No providers match">
-          Try a different category or clear the filters.{' '}
-          {hasFilters && <button className="btn btn-ghost btn-sm" onClick={() => setParams({})}>Clear filters</button>}
+        <Empty title="No available providers match">
+          Try a different service or city. Providers appear here only while they have switched themselves to Available.
         </Empty>
       )}
 

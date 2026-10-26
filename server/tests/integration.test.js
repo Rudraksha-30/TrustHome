@@ -97,7 +97,7 @@ maybe('full journey against MongoDB', () => {
         .send({
           headline: 'Fast plumbing fixes',
           description: 'Leaks and pipes',
-          categories: ['Plumbing', ' Drainage '],
+          categories: ['Plumbing', ' Electrical '],
           serviceArea: 'Jaipur',
           priceMin: 300,
           priceMax: 900,
@@ -105,29 +105,42 @@ maybe('full journey against MongoDB', () => {
           trust: { score: 100 },
         });
       expect(res.status).toBe(200);
-      expect(res.body.profile.categories).toEqual(['plumbing', 'drainage']);
+      expect(res.body.profile.categories).toEqual(['plumbing', 'electrical']);
       expect(res.body.profile.isVerified).toBe(false);
       expect(res.body.profile.trust.score).toBe(50);
       ctx.profileId = res.body.profile._id;
     });
 
-    test('public browse, filter, search and metadata work (FR-8, FR-9, FR-10)', async () => {
-      const all = await api().get('/api/providers');
+    test('a provider is NOT listed until they switch availability on (point 8)', async () => {
+      expect((await api().get('/api/providers').set(auth(ctx.customer.token))).body.total).toBe(0);
+      const on = await api().patch('/api/providers/me/availability').set(auth(ctx.provider.token)).send({ available: true });
+      expect(on.status).toBe(200);
+      expect(on.body.profile.isAvailable).toBe(true);
+    });
+
+    test('browse needs a login and is closed to providers (points 10 and 12)', async () => {
+      expect((await api().get('/api/providers')).status).toBe(401);
+      expect((await api().get('/api/providers').set(auth(ctx.provider.token))).status).toBe(403);
+    });
+
+    test('browse, filter and catalog work for customers (FR-8, FR-9, FR-10, point 11)', async () => {
+      const as = (path) => api().get(path).set(auth(ctx.customer.token));
+      const all = await as('/api/providers');
       expect(all.status).toBe(200);
       expect(all.body.total).toBe(1);
       expect(all.body.providers[0].user.name).toBe('Pat Plumber');
       expect(all.body.providers[0].user.email).toBeUndefined();
 
-      expect((await api().get('/api/providers?category=plumbing')).body.total).toBe(1);
-      expect((await api().get('/api/providers?category=carpentry')).body.total).toBe(0);
-      expect((await api().get('/api/providers?area=jaipur')).body.total).toBe(1);
-      expect((await api().get('/api/providers?q=leaks')).body.total).toBe(1);
-      expect((await api().get('/api/providers?q=.*')).body.total).toBe(0); // regex characters are escaped (NFR-7)
+      expect((await as('/api/providers?category=plumbing')).body.total).toBe(1);
+      expect((await as('/api/providers?category=carpentry')).body.total).toBe(0);
+      expect((await as('/api/providers?category=drainage')).status).toBe(400); // not in the fixed list
+      expect((await as('/api/providers?area=jaipur')).body.total).toBe(1);
+      expect((await as('/api/providers?q=.*')).body.total).toBe(1); // free-text search no longer exists, q is ignored
 
-      const cats = await api().get('/api/providers/meta/categories');
-      expect(cats.body.categories).toEqual(['drainage', 'plumbing']);
+      const cat = await api().get('/api/providers/meta/catalog').set(auth(ctx.customer.token));
+      expect(cat.body.services.map((x) => x.key)).toContain('plumbing');
 
-      const one = await api().get(`/api/providers/${ctx.profileId}`);
+      const one = await as(`/api/providers/${ctx.profileId}`);
       expect(one.status).toBe(200);
       ctx.providerUserId = one.body.profile.user._id;
     });
@@ -152,7 +165,7 @@ maybe('full journey against MongoDB', () => {
 
     test('customer books; the provider is notified (FR-11, FR-12)', async () => {
       const res = await api().post('/api/bookings').set(auth(ctx.customer.token))
-        .send({ providerId: ctx.providerUserId, category: 'plumbing', scheduledStart: slot, durationMinutes: 60, notes: 'Kitchen tap', address: '12 MI Road' });
+        .send({ providerId: ctx.providerUserId, category: 'plumbing', scheduledStart: slot, notes: 'Kitchen tap', address: '12 MI Road' });
       expect(res.status).toBe(201);
       expect(res.body.booking.status).toBe('requested');
       ctx.booking = res.body.booking;
@@ -260,7 +273,7 @@ maybe('full journey against MongoDB', () => {
       expect(res.body.trust.score).toBeGreaterThan(50); // 1 completed job, 5 stars, fast reply
       expect(res.body.trust.breakdown.rating.value).toBe(100);
 
-      const profile = await api().get(`/api/providers/${ctx.profileId}`);
+      const profile = await api().get(`/api/providers/${ctx.profileId}`).set(auth(ctx.customer.token));
       expect(profile.body.profile.trust.score).toBe(res.body.trust.score);
       expect(profile.body.profile.trust.reviewCount).toBe(1);
       expect(profile.body.profile.trust.isNewProvider).toBe(true); // still under 3 reviews (FR-21)
@@ -273,7 +286,7 @@ maybe('full journey against MongoDB', () => {
     });
 
     test('reviews are listed publicly; the provider was notified', async () => {
-      const list = await api().get(`/api/providers/${ctx.profileId}/reviews`);
+      const list = await api().get(`/api/providers/${ctx.profileId}/reviews`).set(auth(ctx.customer.token));
       expect(list.body.reviews).toHaveLength(1);
       expect(list.body.reviews[0].customer.name).toBe('Cathy Customer');
 
@@ -382,13 +395,13 @@ maybe('full journey against MongoDB', () => {
     });
 
     test('resolving against the provider lowers their score (FR-26)', async () => {
-      const before = (await api().get(`/api/providers/${ctx.profileId}`)).body.profile.trust.score;
+      const before = (await api().get(`/api/providers/${ctx.profileId}`).set(auth(ctx.customer.token))).body.profile.trust.score;
       const res = await api().patch(`/api/admin/disputes/${ctx.dispute._id}/resolve`).set(auth(ctx.admin.token))
         .send({ outcome: 'provider_at_fault', adminNote: 'Repair was faulty.' });
       expect(res.status).toBe(200);
       expect(res.body.dispute.status).toBe('resolved');
 
-      const after = (await api().get(`/api/providers/${ctx.profileId}`)).body.profile.trust;
+      const after = (await api().get(`/api/providers/${ctx.profileId}`).set(auth(ctx.customer.token))).body.profile.trust;
       expect(after.score).toBeLessThan(before);
       expect(after.breakdown.disputes.value).toBe(0); // 1 fault in 1 completed job
 
@@ -396,7 +409,7 @@ maybe('full journey against MongoDB', () => {
       expect(again.status).toBe(409);
 
       const customerNotes = await api().get('/api/notifications').set(auth(ctx.customer.token));
-      expect(customerNotes.body.notifications[0].message).toMatch(/resolved in favour of the customer/);
+      expect(customerNotes.body.notifications[0].message).toMatch(/decided in your favour/);
     });
 
     test('an invalid outcome is rejected', async () => {
@@ -407,7 +420,7 @@ maybe('full journey against MongoDB', () => {
     test('admin can verify and un-verify a provider; the provider is told (FR-25)', async () => {
       const on = await api().patch(`/api/admin/providers/${ctx.profileId}/verify`).set(auth(ctx.admin.token)).send({ isVerified: true });
       expect(on.body.profile.isVerified).toBe(true);
-      expect((await api().get(`/api/providers/${ctx.profileId}`)).body.profile.isVerified).toBe(true);
+      expect((await api().get(`/api/providers/${ctx.profileId}`).set(auth(ctx.customer.token))).body.profile.isVerified).toBe(true);
 
       const off = await api().patch(`/api/admin/providers/${ctx.profileId}/verify`).set(auth(ctx.admin.token)).send({ isVerified: false });
       expect(off.body.profile.isVerified).toBe(false);
@@ -420,10 +433,10 @@ maybe('full journey against MongoDB', () => {
   describe('provider-side cancellation hurts the score', () => {
     test('cancelling an accepted job lowers the completion rate', async () => {
       const book = await api().post('/api/bookings').set(auth(ctx.customer2.token))
-        .send({ providerId: ctx.providerUserId, category: 'drainage', scheduledStart: inDays(5, 14) });
+        .send({ providerId: ctx.providerUserId, category: 'electrical', scheduledStart: inDays(5, 14) });
       expect(book.status).toBe(201);
       await api().patch(`/api/bookings/${book.body.booking._id}/status`).set(auth(ctx.provider.token)).send({ status: 'accepted' });
-      const before = (await api().get(`/api/providers/${ctx.profileId}`)).body.profile.trust.breakdown.completion.value;
+      const before = (await api().get(`/api/providers/${ctx.profileId}`).set(auth(ctx.customer.token))).body.profile.trust.breakdown.completion.value;
 
       const cancel = await api().patch(`/api/bookings/${book.body.booking._id}/status`).set(auth(ctx.provider.token))
         .send({ status: 'cancelled', reason: 'Van broke down' });
@@ -431,7 +444,7 @@ maybe('full journey against MongoDB', () => {
       expect(cancel.body.booking.cancelReason).toBe('Van broke down'); // FR-16
       expect(cancel.body.booking.cancelledByRole).toBe('provider');
 
-      const after = (await api().get(`/api/providers/${ctx.profileId}`)).body.profile.trust.breakdown.completion.value;
+      const after = (await api().get(`/api/providers/${ctx.profileId}`).set(auth(ctx.customer.token))).body.profile.trust.breakdown.completion.value;
       expect(before).toBe(100);
       expect(after).toBe(50); // 1 completed, 1 cancelled by provider
     });
@@ -446,8 +459,8 @@ maybe('full journey against MongoDB', () => {
 
     test('a deactivated listing disappears from browse and cannot be booked (FR-7)', async () => {
       await api().put('/api/providers/me/profile').set(auth(ctx.provider.token)).send({ isActive: false });
-      expect((await api().get('/api/providers')).body.total).toBe(0);
-      expect((await api().get(`/api/providers/${ctx.profileId}`)).status).toBe(404);
+      expect((await api().get('/api/providers').set(auth(ctx.customer.token))).body.total).toBe(0);
+      expect((await api().get(`/api/providers/${ctx.profileId}`).set(auth(ctx.customer.token))).status).toBe(404);
       const res = await api().post('/api/bookings').set(auth(ctx.customer.token))
         .send({ providerId: ctx.providerUserId, category: 'plumbing', scheduledStart: inDays(9, 9) });
       expect(res.status).toBe(404);

@@ -8,7 +8,8 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, trim: true },
     // password is excluded from query results by default (NFR-8)
     password: { type: String, required: true, minlength: 8, select: false },
-    role: { type: String, enum: ['customer', 'provider', 'admin'], default: 'customer' },
+    // admin and inspector accounts are never created through sign-up (see scripts/seedAdmin.js, seedInspector.js)
+    role: { type: String, enum: ['customer', 'provider', 'admin', 'inspector'], default: 'customer' },
   },
   { timestamps: true }
 );

@@ -11,9 +11,10 @@ Built for the 5th semester **Software Engineering Lab**. The project is organise
 
 | Role | What they can do |
 |---|---|
-| **Customer** | Register, search and filter providers, see why a provider has their score, book a time slot, track a booking on a status timeline, chat with the provider, leave a review, report a problem (dispute), get notifications |
-| **Provider** | Create and edit a listing (categories, area, prices), accept / decline / start / complete bookings, cancel with a reason, chat, watch their trust score and its breakdown change |
+| **Customer** | Register, sign in to browse providers, filter by service and city (fixed lists, no free text), see why a provider has their score, book a time slot (the provider decides how long a job blocks), track a booking, chat (edit/delete own messages), attach photos and videos to a booking, see a provider's previous-work photos, leave, edit or delete a review, report a problem (dispute), get notifications |
+| **Provider** | Create and edit a listing (services from a fixed list, area, prices, time per booking), add up to 12 previous-work photos with captions to their public page, switch **Available / Not available** (only available providers are listed to customers; the time spent on each setting is tracked and shown), accept / decline / start / complete bookings, cancel with a reason, chat, watch their trust score and its breakdown change |
 | **Admin** | Platform statistics, verify providers (badge), review and resolve disputes (a ruling against a provider lowers their score) |
+| **Quality inspector** | Read-only quality report: trust, recent rating, cancellations, time not available, with flags when a number crosses a threshold. Cannot warn, suspend or see photos |
 
 ## The Trust Score (the project's hook)
 
@@ -102,6 +103,16 @@ ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='a-strong-password' npm run seed:admi
 $env:ADMIN_EMAIL="you@example.com"; $env:ADMIN_PASSWORD="a-strong-password"; npm run seed:admin
 ```
 
+Quality inspectors also cannot sign up on the website. Create one the same way:
+
+```bash
+# macOS / Linux / Git Bash
+INSPECTOR_EMAIL=qa@example.com INSPECTOR_PASSWORD='a-strong-password' npm run seed:inspector
+
+# Windows PowerShell
+$env:INSPECTOR_EMAIL="qa@example.com"; $env:INSPECTOR_PASSWORD="a-strong-password"; npm run seed:inspector
+```
+
 ## Run the tests
 
 ```bash
@@ -158,12 +169,15 @@ All responses are JSON. Send the token as `Authorization: Bearer <token>`.
 | Area | Endpoints |
 |---|---|
 | Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET` and `PATCH /api/auth/me` |
-| Providers | `GET /api/providers` (filters `category`, `area`, `q`, `page`), `GET /api/providers/meta/categories`, `GET /api/providers/:id`, `GET /api/providers/:profileId/reviews`, `GET` and `PUT /api/providers/me/profile` (provider) |
+| Providers | `GET /api/providers` (customer/admin only; filters `category` from the fixed list, `area`, `page`; only available providers), `GET /api/providers/meta/catalog`, `GET /api/providers/:id`, `GET /api/providers/:profileId/reviews`, `GET` and `PUT /api/providers/me/profile`, `GET` and `PATCH /api/providers/me/availability` (provider) |
 | Bookings | `POST /api/bookings` (customer), `GET /api/bookings`, `GET /api/bookings/:id`, `PATCH /api/bookings/:id/status`, `GET /api/bookings/:bookingId/review`, `GET /api/bookings/:bookingId/disputes` |
-| Chat | `GET` and `POST /api/bookings/:id/messages` |
-| Reviews | `POST /api/reviews` (customer, completed bookings only, one per booking) |
+| Chat | `GET` and `POST /api/bookings/:id/messages`, `PATCH` and `DELETE /api/bookings/:id/messages/:messageId` (own messages) |
+| Portfolio | `GET /api/providers/:profileId/portfolio` (signed-in), `POST /api/providers/me/portfolio` (raw image body, provider), `PATCH` and `DELETE /api/providers/me/portfolio/:itemId`, `GET /api/portfolio/:id/file` (signed link) |
+| Media | `GET` and `POST /api/bookings/:id/media` (raw image/video body), `GET /api/media/:id/file` (signed link), `DELETE /api/media/:id` (uploader) |
+| Reviews | `POST /api/reviews` (customer, completed bookings only, one per booking), `PATCH` and `DELETE /api/reviews/:id` (author) |
 | Disputes | `POST /api/disputes` (either party) |
 | Notifications | `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/read-all`, `PATCH /api/notifications/:id/read` |
+| Inspector | `GET /api/inspector/report?days=` (inspector or admin) |
 | Admin | `GET /api/admin/stats`, `GET /api/admin/providers`, `PATCH /api/admin/providers/:id/verify`, `GET /api/admin/disputes`, `PATCH /api/admin/disputes/:id/resolve` |
 
 ## Deploying
@@ -183,3 +197,10 @@ See **`DEPLOY.md`** for the step-by-step guide (MongoDB Atlas + Render + Vercel,
    Providers are currently ranked by Trust Score, and the category filter handles matching.
 7. The end-to-end tests were run against a MongoDB-compatible server (FerretDB), not MongoDB itself.
    Run them once against your own MongoDB to confirm (command above).
+8. **Deleting a chat message is permanent.** The text is erased, only a "message deleted" marker remains, so it cannot
+   be used as evidence in a dispute. A production system might keep a hidden copy for admins.
+9. **Photos and videos are stored inside MongoDB** (photos up to 5 MB, videos up to 15 MB; JPEG, PNG, WebP, GIF, MP4, WebM).
+   Simple and fine for a demo, but Atlas's free tier is 512 MB; production would use object storage such as S3.
+   iPhone HEIC photos are rejected. Files are type-checked by their real bytes, not their file name.
+10. **Search uses a fixed list of 12 services.** Adding a service is one line in `server/src/services/serviceCatalog.js`.
+11. **Previous-work photos are separate from booking photos.** Booking files stay private to the two people on the booking; only photos a provider uploads to their own portfolio are shown publicly (to signed-in users). Photos only, no videos, max 12.

@@ -5,6 +5,7 @@ import { useAuth } from '../auth.jsx';
 import { categoryLabel, fmtDate, localInputValue, priceRange } from '../lib.js';
 import TrustDial from '../components/TrustDial.jsx';
 import SignalBars from '../components/SignalBars.jsx';
+import Portfolio from '../components/Portfolio.jsx';
 import { Empty, Notice, VerifiedMark } from '../components/bits.jsx';
 
 const stars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
@@ -17,7 +18,6 @@ function BookingForm({ profile }) {
   const [form, setForm] = useState({
     category: profile.categories[0] || '',
     when: '',
-    durationMinutes: '60',
     address: '',
     notes: '',
   });
@@ -46,6 +46,16 @@ function BookingForm({ profile }) {
     );
   }
 
+  if (profile.isAvailable === false) {
+    return (
+      <div className="panel sticky">
+        <h3>Not taking bookings</h3>
+        <p className="muted" style={{ margin: 0 }}>{profile.user?.name} has switched to Not available. Try again later or pick another professional.</p>
+        <p style={{ marginBottom: 0 }}><Link to="/providers">See available professionals</Link></p>
+      </div>
+    );
+  }
+
   const submit = async (e) => {
     e.preventDefault();
     setError('');
@@ -56,7 +66,6 @@ function BookingForm({ profile }) {
         providerId: profile.user._id,
         category: form.category,
         scheduledStart: new Date(form.when).toISOString(),
-        durationMinutes: Number(form.durationMinutes),
         address: form.address.trim() || undefined,
         notes: form.notes.trim() || undefined,
       });
@@ -82,12 +91,6 @@ function BookingForm({ profile }) {
         <input id="b-when" type="datetime-local" min={minStart} value={form.when} onChange={set('when')} required />
       </div>
       <div className="field">
-        <label htmlFor="b-dur">How long</label>
-        <select id="b-dur" value={form.durationMinutes} onChange={set('durationMinutes')}>
-          {[30, 60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m >= 60 ? `${m / 60} ${m === 60 ? 'hour' : 'hours'}` : `${m} minutes`}</option>)}
-        </select>
-      </div>
-      <div className="field">
         <label htmlFor="b-addr">Address</label>
         <input id="b-addr" value={form.address} onChange={set('address')} maxLength={200} placeholder="Where should they come?" />
       </div>
@@ -96,7 +99,7 @@ function BookingForm({ profile }) {
         <textarea id="b-notes" value={form.notes} onChange={set('notes')} maxLength={500} placeholder="What needs doing?" />
       </div>
       <button className="btn btn-accent btn-block" type="submit" disabled={busy}>{busy ? 'Sending…' : 'Request booking'}</button>
-      <p className="field-hint">The provider will accept or decline. You can chat once they reply.</p>
+      <p className="field-hint">The provider will accept or decline and will plan the time the job needs. You can chat once they reply.</p>
     </form>
   );
 }
@@ -153,6 +156,8 @@ export default function ProviderDetail() {
             </div>
             {profile.description && <p style={{ marginTop: 18, marginBottom: 0 }}>{profile.description}</p>}
           </div>
+
+          <Portfolio profileId={profile._id} />
 
           <div className="panel">
             <h2>Why this score</h2>

@@ -16,6 +16,8 @@ const Review = require('../src/models/Review');
 const Dispute = require('../src/models/Dispute');
 const Message = require('../src/models/Message');
 const Notification = require('../src/models/Notification');
+const AvailabilityLog = require('../src/models/AvailabilityLog');
+const Media = require('../src/models/Media');
 const { recalculateForProvider } = require('../src/services/trustScore.service');
 
 const PASSWORD = 'Password123';
@@ -24,17 +26,17 @@ const MIN = 60 * 1000;
 const args = new Set(process.argv.slice(2));
 
 const PROVIDERS = [
-  { name: 'Ravi Sharma', key: 'ravi', cat: 'plumbing', headline: 'Leaks, pipes and bathroom fittings fixed the same day', area: 'Jaipur', min: 300, max: 1500, verified: true,
+  { name: 'Ravi Sharma', key: 'ravi', on: true, onPct: 95, cat: 'plumbing', headline: 'Leaks, pipes and bathroom fittings fixed the same day', area: 'Jaipur', min: 300, max: 1500, verified: true,
     completed: 14, ratings: [5, 5, 5, 4, 5, 5, 5, 5, 4, 5, 5, 5, 5, 5], respond: 12, providerCancels: 0 },
-  { name: 'Meena Electricals', key: 'meena', cat: 'electrical', headline: 'Wiring, fans, switchboards and inverter installs', area: 'Jaipur', min: 250, max: 2000, verified: true,
+  { name: 'Meena Electricals', key: 'meena', on: true, onPct: 90, cat: 'electrical', headline: 'Wiring, fans, switchboards and inverter installs', area: 'Jaipur', min: 250, max: 2000, verified: true,
     completed: 12, ratings: [5, 4, 5, 5, 4, 5, 4, 5, 5, 4, 5, 5], respond: 25, providerCancels: 1 },
-  { name: 'Anil Carpentry Works', key: 'anil', cat: 'carpentry', headline: 'Custom furniture, repairs and door fittings', area: 'Jaipur', min: 500, max: 5000, verified: false,
+  { name: 'Anil Carpentry Works', key: 'anil', on: false, onPct: 40, cat: 'carpentry', headline: 'Custom furniture, repairs and door fittings', area: 'Jaipur', min: 500, max: 5000, verified: false,
     completed: 8, ratings: [5, 3, 4, 2, 5, 3, 4, 3], respond: 240, providerCancels: 3 },
-  { name: 'Pooja Home Cleaning', key: 'pooja', cat: 'cleaning', headline: 'Deep cleaning for kitchens, bathrooms and whole homes', area: 'Jaipur', min: 400, max: 3000, verified: true,
+  { name: 'Pooja Home Cleaning', key: 'pooja', on: true, onPct: 85, cat: 'cleaning', headline: 'Deep cleaning for kitchens, bathrooms and whole homes', area: 'Jaipur', min: 400, max: 3000, verified: true,
     completed: 11, ratings: [5, 5, 4, 5, 5, 5, 5, 4, 5, 5, 5], respond: 20, providerCancels: 0 },
-  { name: 'Imran AC Repair', key: 'imran', cat: 'ac-repair', headline: 'AC servicing, gas refill and installation', area: 'Jaipur', min: 350, max: 3500, verified: false,
+  { name: 'Imran AC Repair', key: 'imran', on: true, onPct: 70, cat: 'ac-repair', headline: 'AC servicing, gas refill and installation', area: 'Jaipur', min: 350, max: 3500, verified: false,
     completed: 3, ratings: [5, 4, 5], respond: 45, providerCancels: 0 },
-  { name: 'Sunita Maths Tutor', key: 'sunita', cat: 'tutoring', headline: 'Maths and science for classes 6 to 10', area: 'Jaipur', min: 300, max: 600, verified: false,
+  { name: 'Sunita Maths Tutor', key: 'sunita', on: false, onPct: 15, cat: 'tutoring', headline: 'Maths and science for classes 6 to 10', area: 'Jaipur', min: 300, max: 600, verified: false,
     completed: 0, ratings: [], respond: 0, providerCancels: 0 },
 ];
 
@@ -65,6 +67,8 @@ async function wipeDemo() {
     Dispute.deleteMany({ booking: { $in: bookingIds } }),
     Notification.deleteMany({ user: { $in: ids } }),
     ProviderProfile.deleteMany({ user: { $in: ids } }),
+    AvailabilityLog.deleteMany({ provider: { $in: ids } }),
+    Media.deleteMany({ booking: { $in: bookingIds } }),
   ]);
   await Booking.deleteMany({ _id: { $in: bookingIds } });
   await User.deleteMany({ _id: { $in: ids } });
@@ -101,8 +105,31 @@ async function main() {
       priceMin: p.min,
       priceMax: p.max,
       isVerified: p.verified,
+      isAvailable: p.on,
     });
     providers.push({ spec: p, user });
+  }
+
+  // Availability history over the last 30 days: alternate on/off blocks so each provider ends up roughly
+  // `onPct` percent available, and finishes in the state shown on their listing.
+  const START = Date.now() - 30 * DAY;
+  for (const { spec, user } of providers) {
+    const blocks = 6; // 3 on/off cycles
+    const onTotal = (30 * DAY * spec.onPct) / 100;
+    const offTotal = 30 * DAY - onTotal;
+    let t = START;
+    const states = [];
+    for (let i = 0; i < blocks; i += 1) states.push(i % 2 === 0 ? 'unavailable' : 'available');
+    if (spec.on === false) states.push('unavailable'); else states.push('available');
+    // ends on the current state; give each block an even share of its state's total time
+    const nOn = states.filter((s) => s === 'available').length || 1;
+    const nOff = states.filter((s) => s === 'unavailable').length || 1;
+    for (let i = 0; i < states.length; i += 1) {
+      const len = states[i] === 'available' ? onTotal / nOn : offTotal / nOff;
+      const last = i === states.length - 1;
+      await AvailabilityLog.create({ provider: user._id, state: states[i], startedAt: new Date(t), endedAt: last ? null : new Date(t + len) });
+      t += len;
+    }
   }
 
   // Past completed jobs with reviews. One booking per review, spaced a day apart so slots never overlap.

@@ -66,4 +66,32 @@ export function localInputValue(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export const homeFor = (user) => (user?.role === 'admin' ? '/admin' : user?.role === 'provider' ? '/bookings' : '/providers');
+export const homeFor = (user) => (user?.role === 'admin' ? '/admin' : user?.role === 'inspector' ? '/inspector' : user?.role === 'provider' ? '/bookings' : '/providers');
+
+/** Shrink big phone photos in the browser before upload (keeps them well under the server's 5 MB limit). */
+export async function prepareImage(file, maxSide = 1600) {
+  if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.size < 600 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file; // cannot decode (e.g. HEIC): let the server explain
+  }
+}
+
+export const fmtMinutes = (m) => {
+  if (m == null) return '-';
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const mins = m % 60;
+  if (h < 24) return mins ? `${h} h ${mins} min` : `${h} h`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `${d} d ${h % 24} h` : `${d} d`;
+};

@@ -49,11 +49,18 @@ const STATUS_LABEL = {
 
 // FR-11
 exports.createBooking = async (req, res) => {
-  const { providerId, category, scheduledStart, durationMinutes = 60, notes, address } = req.body;
+  // Note: there is no duration in the request. A customer cannot know how long a job will take,
+  // so the time blocked in the provider's calendar is the provider's own setting (slotMinutes).
+  const { providerId, category, scheduledStart, notes, address } = req.body;
 
   const providerUser = await User.findOne({ _id: providerId, role: 'provider' });
   const profile = providerUser && (await ProviderProfile.findOne({ user: providerUser._id }));
   if (!profile || !profile.isActive) return res.status(404).json({ message: 'Provider not found' });
+
+  // Point 8: a provider who switched to "Not available" cannot receive new requests.
+  if (!profile.isAvailable) {
+    return res.status(409).json({ message: `${providerUser.name} is not taking bookings right now. Please choose another provider.` });
+  }
 
   const cat = String(category).trim().toLowerCase();
   if (!profile.categories.includes(cat)) {
@@ -64,6 +71,7 @@ exports.createBooking = async (req, res) => {
   if (start <= new Date()) {
     return res.status(400).json({ message: 'Please choose a time in the future' });
   }
+  const durationMinutes = profile.slotMinutes || 60;
   const end = addMinutes(start, durationMinutes);
 
   // FR-15: friendly early check. The authoritative check runs again at accept time.
